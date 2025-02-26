@@ -1,3 +1,4 @@
+use cosmwasm_std::Addr;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use neutron_std::types::slinky::oracle::v1::QuotePrice;
@@ -6,6 +7,10 @@ use cw_storage_plus::{Item, Map};
 /// Contract configuration.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct Config {
+    /// Owner can change the configuration.
+    pub owner: Addr,
+    /// The authorized address (e.g. Cron module) allowed to trigger updates.
+    pub caller: Addr,
     /// The list of currency pairs for which we want to store prices.
     pub pairs: Vec<String>,
     /// Minimal period (in blocks) between price updates.
@@ -14,8 +19,6 @@ pub struct Config {
     pub max_blocks_old: u64,
     /// How many historical records to store per pair.
     pub history_size: u64,
-    /// The authorized address (e.g. Cron module) allowed to trigger updates.
-    pub authorized: String,
     /// The block height when the last update was performed.
     pub last_update: u64,
 }

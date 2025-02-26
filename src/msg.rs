@@ -4,6 +4,10 @@ use crate::state::{Config};
 
 #[cw_serde]
 pub struct InstantiateMsg {
+    /// Owner can change the configuration.
+    pub owner: String,
+    /// The authorized address (e.g. Cron module) that can trigger price updates.
+    pub caller: String,
     /// The list of currency pairs to track.
     pub pairs: Vec<String>,
     /// Minimal period (in blocks) between updates.
@@ -12,8 +16,6 @@ pub struct InstantiateMsg {
     pub max_blocks_old: u64,
     /// How many historical records (ring buffer size) to store per pair.
     pub history_size: u64,
-    /// The authorized address (e.g. Cron module) that can trigger price updates.
-    pub authorized: String,
 }
 
 #[cw_serde]
