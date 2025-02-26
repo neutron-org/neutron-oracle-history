@@ -3,11 +3,20 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ContractError {
-    #[error("{0}")]
-    Std(#[from] StdError),
-
     #[error("Unauthorized")]
     Unauthorized {},
-    // Add any other custom errors you like here.
-    // Look at https://docs.rs/thiserror/1.0.21/thiserror/ for details.
+    #[error("Price not available for {symbol}/{quote}")]
+    PriceNotAvailable { symbol: String, quote: String },
+    #[error("Price is too old for {symbol}/{quote}. Maximum allowed blocks: {max_blocks}")]
+    PriceTooOld {
+        symbol: String,
+        quote: String,
+        max_blocks: u64,
+    },
+    #[error("Price is nil for {symbol}/{quote}")]
+    PriceIsNil { symbol: String, quote: String },
+    #[error("Update called too soon. Wait until block {expected}")]
+    TooSoon { expected: u64 },
+    #[error("{0}")]
+    Std(#[from] StdError),
 }
