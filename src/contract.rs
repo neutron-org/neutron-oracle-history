@@ -226,66 +226,6 @@ pub fn validate_price(
 }
 
 /// Returns a string key for a currency pair.
-fn pair_key(pair: &CurrencyPair) -> String {
+pub(crate) fn pair_key(pair: &CurrencyPair) -> String {
     format!("{}-{}", pair.base, pair.quote)
-}
-
-/// ------------------------------------------------------------------------------------------------
-/// TESTS
-/// ------------------------------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use cosmwasm_std::testing::{message_info, mock_dependencies, mock_env};
-
-    #[test]
-    fn test_instantiate_success() {
-        // Set up a mock environment with default values
-        let mut deps = mock_dependencies();
-        let env = mock_env();
-        let info = message_info(&deps.api.addr_make("creator"), &[]);
-
-        // Create a sample InstantiateMsg
-        let instantiate_msg = InstantiateMsg {
-            owner: deps.api.addr_make("owner_addr").into_string(),
-            caller: deps.api.addr_make("caller_addr").into_string(),
-            pairs: vec![
-                CurrencyPair {
-                    base: "untrn".to_string(),
-                    quote: "usd".to_string(),
-                },
-                CurrencyPair {
-                    base: "uatom".to_string(),
-                    quote: "usd".to_string(),
-                },
-            ],
-            update_period: 10,
-            max_blocks_old: 100,
-            history_size: 5,
-        };
-
-        // Call the instantiate function
-        instantiate(deps.as_mut(), env.clone(), info, instantiate_msg.clone())
-            .expect("contract initialization should succeed");
-
-        // Verify that the stored config matches the input data
-        let config = CONFIG.load(&deps.storage).expect("config must be saved");
-        assert_eq!(config.owner, deps.api.addr_make("owner_addr"));
-        assert_eq!(config.caller, deps.api.addr_make("caller_addr"));
-        assert_eq!(config.pairs, instantiate_msg.pairs);
-        assert_eq!(config.update_period, instantiate_msg.update_period);
-        assert_eq!(config.max_blocks_old, instantiate_msg.max_blocks_old);
-        assert_eq!(config.history_size, instantiate_msg.history_size);
-        assert_eq!(config.last_update, env.block.height);
-
-        // Verify that ring buffer pointers are initialized for each pair with 0
-        for pair in &instantiate_msg.pairs {
-            let key = pair_key(pair);
-            let idx = LAST_INDEX
-                .load(&deps.storage, &key)
-                .expect("pair index must be saved");
-            assert_eq!(idx, 0);
-        }
-    }
 }

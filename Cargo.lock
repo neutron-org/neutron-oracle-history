@@ -756,6 +756,7 @@ dependencies = [
  "cw-storage-plus",
  "cw2",
  "neutron-std",
+ "prost 0.12.6",
  "schemars",
  "serde",
  "thiserror 2.0.11",
