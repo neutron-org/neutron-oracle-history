@@ -290,3 +290,73 @@ fn test_update_prices_success_and_skip_logic() {
     let config = CONFIG.load(&deps.storage).unwrap();
     assert_eq!(config.last_update, env.block.height);
 }
+
+#[test]
+fn test_update_prices_ring_buffer_wrap() {
+    let mut deps = mock_dependencies();
+    let mut env = mock_env();
+    let info = message_info(&deps.api.addr_make("creator"), &[]);
+
+    // We'll set history_size to 2 to force wrap
+    let instantiate_msg = InstantiateMsg {
+        owner: deps.api.addr_make("owner_addr").to_string(),
+        caller: deps.api.addr_make("caller_addr").to_string(),
+        pairs: vec![CurrencyPair {
+            base: "untrn".to_string(),
+            quote: "usd".to_string(),
+        }],
+        update_period: 1,
+        max_blocks_old: 100,
+        history_size: 2,
+    };
+    instantiate(deps.as_mut(), env.clone(), info, instantiate_msg).unwrap();
+
+    // We'll do multiple update calls to force the ring buffer to wrap
+    let key = "untrn-usd";
+
+    for i in 0..5 {
+        env.block.height += 2; // enough blocks so we don't get "TooSoon"
+
+        deps.querier.update_oracle_data(
+            key,
+            MockOraclePriceData {
+                price: Some(QuotePrice {
+                    price: format!("{}", i),
+                    block_timestamp: None,
+                    block_height: env.block.height,
+                }),
+                nonce: 1,
+                decimals: 6,
+                id: 0,
+            },
+        );
+
+        let info = message_info(&deps.api.addr_make("caller_addr"), &[]);
+        let msg = ExecuteMsg::UpdatePrices {};
+        let _ = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+    }
+
+    // Because history_size=2, pointer should always cycle among 0,1
+    // after 5 updates, pointer = 5 mod 2 = 1
+    let pointer = LAST_INDEX.load(&deps.storage, key).unwrap();
+    assert_eq!(pointer, 5 % 2);
+
+    // Let's see what's stored at index 0,1 in the ring buffer
+    // The final pointer is 1, meaning the last write was to index 0 (because we do pointer,
+    // then pointer+1 mod size). However, let's just check what's there.
+
+    let price0 = PRICE_HISTORY.load(&deps.storage, (key, 0)).unwrap();
+    let price1 = PRICE_HISTORY.load(&deps.storage, (key, 1)).unwrap();
+
+    // Because the final update had price=4 (0-based), that means the final stored price is 4,
+    // so presumably the ring buffer alternated writes:
+    //  - 1st update => writes to index 0 (pointer was 0, then pointer=1)
+    //  - 2nd update => writes to index 1 (pointer was 1, then pointer=0)
+    //  - 3rd update => writes to index 0 (pointer was 0, then pointer=1)
+    //  - 4th update => writes to index 1 (pointer was 1, then pointer=0)
+    //  - 5th update => writes to index 0 (pointer was 0, then pointer=1)
+    //
+    // So after the 5th update, index 0 = i=4, index 1 = i=3.
+    assert_eq!(price0.price, "4");
+    assert_eq!(price1.price, "3");
+}
