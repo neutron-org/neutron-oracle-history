@@ -62,7 +62,7 @@ impl WasmMockQuerier {
 
     fn handle_grpc_query(&self, path: &str, data: &[u8]) -> SystemResult<ContractResult<Binary>> {
         match path {
-            GetPriceRequest::TYPE_URL => {
+            "/slinky.oracle.v1.Query/GetPrice" => {
                 // Decode the request so we can check which pair is queried
                 let req = match GetPriceRequest::decode(data) {
                     Ok(r) => r,

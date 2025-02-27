@@ -1,10 +1,11 @@
 use crate::contract::{execute, instantiate, pair_key};
 use crate::msg::{ExecuteMsg, InstantiateMsg};
-use crate::state::{CONFIG, LAST_INDEX};
-use crate::testing::mock_querier::mock_dependencies;
+use crate::state::{CONFIG, LAST_INDEX, PRICE_HISTORY};
+use crate::testing::mock_querier::{mock_dependencies, MockOraclePriceData};
 use crate::ContractError;
 use cosmwasm_std::attr;
 use cosmwasm_std::testing::{message_info, mock_env};
+use neutron_std::types::slinky::oracle::v1::QuotePrice;
 use neutron_std::types::slinky::types::v1::CurrencyPair;
 
 #[test]
@@ -195,4 +196,97 @@ fn test_update_prices_too_soon() {
     } else {
         panic!("expected TooSoon error");
     }
+}
+
+#[test]
+fn test_update_prices_success_and_skip_logic() {
+    let mut deps = mock_dependencies();
+    let mut env = mock_env();
+    let info = message_info(&deps.api.addr_make("creator"), &[]);
+
+    // Instantiate with 2 pairs
+    let instantiate_msg = InstantiateMsg {
+        owner: deps.api.addr_make("owner_addr").to_string(),
+        caller: deps.api.addr_make("caller_addr").to_string(),
+        pairs: vec![
+            CurrencyPair {
+                base: "untrn".to_string(),
+                quote: "usd".to_string(),
+            },
+            CurrencyPair {
+                base: "uatom".to_string(),
+                quote: "usd".to_string(),
+            },
+        ],
+        update_period: 10,
+        max_blocks_old: 100,
+        history_size: 5,
+    };
+    instantiate(deps.as_mut(), env.clone(), info, instantiate_msg).unwrap();
+
+    // Manually move block height forward to allow updates
+    env.block.height += 20;
+
+    // Insert some mock oracle data:
+    // 1) untrn-usd -> valid data (nonce=2, price.block_height=env.block.height - 5)
+    // 2) uatom-usd -> stale data (nonce=3, but block_height=0 or something older than max_blocks_old)
+    let key1 = "untrn-usd";
+    deps.querier.update_oracle_data(
+        key1,
+        MockOraclePriceData {
+            price: Some(QuotePrice {
+                price: "1000".to_string(),
+                block_timestamp: None,
+                block_height: env.block.height - 5,
+            }),
+            nonce: 2,
+            decimals: 6,
+            id: 42,
+        },
+    );
+    let key2 = "uatom-usd";
+    deps.querier.update_oracle_data(
+        key2,
+        MockOraclePriceData {
+            price: Some(QuotePrice {
+                price: "1000".to_string(),
+                block_timestamp: None,
+                block_height: env.block.height - 200, // definitely older than max_blocks_old=100
+            }),
+            nonce: 3,
+            decimals: 6,
+            id: 123,
+        },
+    );
+
+    // Now call update_prices
+    let info = message_info(&deps.api.addr_make("caller_addr"), &[]);
+    let msg = ExecuteMsg::UpdatePrices {};
+    let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
+
+    // We expect one pair to be updated, the other to be skipped
+    // The "skip" attribute is for the stale pair (uatom-usd)
+    // The "updated" attribute is for the fresh pair (untrn-usd)
+    assert_eq!(res.attributes.len(), 2);
+    assert_eq!(res.attributes[0], attr("updated", key1));
+    assert_eq!(res.attributes[1], attr("skip", key2));
+
+    // Check that ring buffer has a record for the updated pair
+    let pointer = LAST_INDEX.load(&deps.storage, key1).unwrap();
+    // Because we started from 0 and wrote one record
+    assert_eq!(pointer, 1);
+
+    // The actual price stored:
+    let stored_price = PRICE_HISTORY
+        .load(&deps.storage, (key1, 0))
+        .expect("should store price at index 0");
+    assert_eq!(stored_price.block_height, env.block.height - 5);
+
+    // The stale pair should still have pointer=0 (no writes)
+    let pointer2 = LAST_INDEX.load(&deps.storage, key2).unwrap();
+    assert_eq!(pointer2, 0);
+
+    // Confirm that config.last_update was updated to the new block height
+    let config = CONFIG.load(&deps.storage).unwrap();
+    assert_eq!(config.last_update, env.block.height);
 }
