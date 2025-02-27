@@ -1,8 +1,9 @@
 use cosmwasm_std::Addr;
+use cw_storage_plus::{Item, Map};
+use neutron_std::types::slinky::oracle::v1::QuotePrice;
+use neutron_std::types::slinky::types::v1::CurrencyPair;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use neutron_std::types::slinky::oracle::v1::QuotePrice;
-use cw_storage_plus::{Item, Map};
 
 /// Contract configuration.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
@@ -12,7 +13,7 @@ pub struct Config {
     /// The authorized address (e.g. Cron module) allowed to trigger updates.
     pub caller: Addr,
     /// The list of currency pairs for which we want to store prices.
-    pub pairs: Vec<String>,
+    pub pairs: Vec<CurrencyPair>,
     /// Minimal period (in blocks) between price updates.
     pub update_period: u64,
     /// Maximum number of blocks a price can be old to be considered fresh.
@@ -32,4 +33,3 @@ pub const LAST_INDEX: Map<&str, u64> = Map::new("last_index");
 /// Ring-buffer storage for price records for each pair.
 /// The key is a tuple: (pair identifier, index within the ring buffer).
 pub const PRICE_HISTORY: Map<(&str, u64), QuotePrice> = Map::new("price_history");
-

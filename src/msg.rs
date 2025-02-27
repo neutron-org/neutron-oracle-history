@@ -1,6 +1,7 @@
-use neutron_std::types::slinky::oracle::v1::QuotePrice;
+use crate::state::Config;
 use cosmwasm_schema::{cw_serde, QueryResponses};
-use crate::state::{Config};
+use neutron_std::types::slinky::oracle::v1::QuotePrice;
+use neutron_std::types::slinky::types::v1::CurrencyPair;
 
 #[cw_serde]
 pub struct InstantiateMsg {
@@ -9,7 +10,7 @@ pub struct InstantiateMsg {
     /// The authorized address (e.g. Cron module) that can trigger price updates.
     pub caller: String,
     /// The list of currency pairs to track.
-    pub pairs: Vec<String>,
+    pub pairs: Vec<CurrencyPair>,
     /// Minimal period (in blocks) between updates.
     pub update_period: u64,
     /// Maximum allowed block age for a price to be "fresh".
@@ -25,7 +26,7 @@ pub enum ExecuteMsg {
     /// Update the configuration (only callable by the authorized address).
     UpdateConfig {
         /// Optionally update the list of currency pairs.
-        pairs: Option<Vec<String>>,
+        pairs: Option<Vec<CurrencyPair>>,
         /// Optionally update the update period (in blocks).
         update_period: Option<u64>,
         /// Optionally update the maximum allowed block age.
@@ -45,7 +46,7 @@ pub enum QueryMsg {
     #[returns(HistoryResponse)]
     History {
         /// The list of currency pairs to query.
-        pairs: Vec<String>,
+        pairs: Vec<CurrencyPair>,
     },
 }
 
@@ -53,7 +54,7 @@ pub enum QueryMsg {
 #[cw_serde]
 pub struct HistoryResponse {
     /// A list of tuples containing the currency pair and its ordered list of price records.
-    pub histories: Vec<(String, Vec<QuotePrice>)>,
+    pub histories: Vec<(CurrencyPair, Vec<QuotePrice>)>,
 }
 
 /// The query response for the config query.
