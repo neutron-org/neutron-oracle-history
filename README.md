@@ -1,85 +1,114 @@
-# CosmWasm Starter Pack
+# Neutron Oracle History Contract
 
-This is a template to build smart contracts in Rust to run inside a
-[Cosmos SDK](https://github.com/cosmos/cosmos-sdk) module on all chains that enable it.
-To understand the framework better, please read the overview in the
-[cosmwasm repo](https://github.com/CosmWasm/cosmwasm/blob/master/README.md),
-and dig into the [cosmwasm docs](https://www.cosmwasm.com).
-This assumes you understand the theory and just want to get coding.
+This CosmWasm smart contract maintains historical price data from an oracle (such as Neutron's Slinky Oracle) using an efficient ring buffer mechanism. It periodically fetches and stores price updates for specified currency pairs, ensuring data freshness and availability for queries.
 
-## Creating a new repo from template
+## Overview
 
-Assuming you have a recent version of Rust and Cargo installed
-(via [rustup](https://rustup.rs/)),
-then the following should get you a new repo to start a contract:
+- **Periodic Updates:** Triggered by an authorized address (e.g., Cron module).
+- **Ring Buffer Storage:** Efficiently stores a fixed history of recent prices for configured currency pairs.
+- **Configurable:** Allows dynamic adjustment of currency pairs, update intervals, history sizes, and freshness criteria.
 
-Install [cargo-generate](https://github.com/ashleygwilliams/cargo-generate) and cargo-run-script.
-Unless you did that before, run this line now:
+## Installation
+
+Clone this repository and compile with:
 
 ```sh
-cargo install cargo-generate --features vendored-openssl
-cargo install cargo-run-script
+cargo wasm
 ```
 
-Now, use it to create your new contract.
-Go to the folder in which you want to place it and run:
+## Instantiation
 
-**Latest**
+Instantiate the contract with initial parameters:
 
-```sh
-cargo generate --git https://github.com/CosmWasm/cw-template.git --name PROJECT_NAME
+```json
+{
+  "owner": "<owner-address>",
+  "caller": "<cron-module-address>",
+  "pairs": [
+    { "base": "ATOM", "quote": "USD" },
+    { "base": "NTRN", "quote": "USD" }
+  ],
+  "update_period": 10,
+  "max_blocks_old": 5,
+  "history_size": 50
+}
 ```
 
-For cloning minimal code repo:
+## Execute Messages
 
-```sh
-cargo generate --git https://github.com/CosmWasm/cw-template.git --name PROJECT_NAME -d minimal=true
+### `UpdatePrices`
+
+Triggered by the authorized caller to fetch current oracle prices and update the history:
+
+```json
+{
+  "update_prices": {}
+}
 ```
 
-You will now have a new folder called `PROJECT_NAME` (I hope you changed that to something else)
-containing a simple working contract and build system that you can customize.
+### `UpdateConfig`
 
-## Create a Repo
+Allows the owner to adjust contract settings:
 
-After generating, you have a initialized local git repo, but no commits, and no remote.
-Go to a server (eg. github) and create a new upstream repo (called `YOUR-GIT-URL` below).
-Then run the following:
-
-```sh
-# this is needed to create a valid Cargo.lock file (see below)
-cargo check
-git branch -M main
-git add .
-git commit -m 'Initial Commit'
-git remote add origin YOUR-GIT-URL
-git push -u origin main
+```json
+{
+  "update_config": {
+    "pairs": [{ "base": "BTC", "quote": "USD" }],
+    "update_period": 15,
+    "max_blocks_old": 10,
+    "history_size": 100
+  }
+}
 ```
 
-## CI Support
+_All fields are optional._
 
-We have template configurations for both [GitHub Actions](.github/workflows/Basic.yml)
-and [Circle CI](.circleci/config.yml) in the generated project, so you can
-get up and running with CI right away.
+## Queries
 
-One note is that the CI runs all `cargo` commands
-with `--locked` to ensure it uses the exact same versions as you have locally. This also means
-you must have an up-to-date `Cargo.lock` file, which is not auto-generated.
-The first time you set up the project (or after adding any dep), you should ensure the
-`Cargo.lock` file is updated, so the CI will test properly. This can be done simply by
-running `cargo check` or `cargo unit-test`.
+### `Config`
 
-## Using your project
+Returns the current contract configuration:
 
-Once you have your custom repo, you should check out [Developing](./Developing.md) to explain
-more on how to run tests and develop code. Or go through the
-[online tutorial](https://docs.cosmwasm.com/) to get a better feel
-of how to develop.
+```json
+{
+  "config": {}
+}
+```
 
-[Publishing](./Publishing.md) contains useful information on how to publish your contract
-to the world, once you are ready to deploy it on a running blockchain. And
-[Importing](./Importing.md) contains information about pulling in other contracts or crates
-that have been published.
+### `History`
 
-Please replace this README file with information about your specific project. You can keep
-the `Developing.md` and `Publishing.md` files as useful references, but please set some
-proper description in the README.
+Returns historical price records for requested currency pairs:
+
+```json
+{
+  "history": {
+    "pairs": [{ "base": "ATOM", "quote": "USD" }]
+  }
+}
+```
+
+## Performance Considerations
+
+The contract intentionally reads from storage `HISTORY_SIZE` times per requested currency pair when executing the `query_history` function. This design choice optimizes performance by significantly reducing gas consumption during periodic updates (triggered by the CRON module's BeginBlocker). The approach ensures the cost-intensive write operations during periodic updates remain minimal, prioritizing contract efficiency and economic operation. The obvious downside is that reading becomes more expensive, but it doesn't seem to be possible to optimise for both reading and writing, and we chose to spend less gas in the CRON schedule.
+
+## Migration
+
+Supports smooth migration via the provided `MigrateMsg`. Ensure migration adheres to semantic versioning principles.
+
+## Storage
+
+- **Config**: Single-instance configuration.
+- **Last Index**: Tracks the next write position for each currency pair.
+- **Price History**: Ring-buffer storing historical price data.
+
+## Error Handling
+
+Errors returned:
+
+- `Unauthorized`: Attempted by an unauthorized address.
+- `TooSoon`: Updates attempted too frequently.
+
+## License
+
+Licensed under Apache 2.0. See [LICENSE](LICENSE) for details.
+
