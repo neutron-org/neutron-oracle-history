@@ -76,7 +76,7 @@ impl WasmMockQuerier {
 
                 // The request should contain an optional currency pair
                 if let Some(pair) = req.currency_pair {
-                    let key = format!("{}-{}", pair.base, pair.quote);
+                    let key = format!("{}/{}", pair.base, pair.quote);
                     // Lookup mock data from the HashMap
                     let mock_data = self.oracle_data.get(&key).cloned().unwrap_or_default();
 

@@ -7,7 +7,7 @@ use crate::error::ContractError;
 use crate::msg::{ExecuteMsg, InstantiateMsg, MigrateMsg, QueryMsg};
 
 use crate::state::{Config, CONFIG, LAST_INDEX, PRICE_HISTORY};
-use neutron_std::types::slinky::oracle::v1::{GetPriceResponse, OracleQuerier};
+use neutron_std::types::slinky::oracle::v1::{GetPriceResponse, OracleQuerier, QuotePrice};
 use neutron_std::types::slinky::types::v1::CurrencyPair;
 
 // version info for migration info
@@ -107,7 +107,12 @@ pub fn execute_update_prices(
     // Process each pair.
     for pair in config.pairs.iter() {
         let key = pair_key(pair);
+
         // Query the oracle for the price.
+        // NOTE: it's possible to first query all prices using the GetPricesRequest, and it's
+        // probably slightly more optimised. However, I'm not sure whether it's a good idea,
+        // since if any of the CurrencyPairs gets removed, the GetPricesRequest will fail,
+        // and we won't update anything.
         let oracle_resp = query_oracle_price(&deps.as_ref(), pair)?;
 
         if let Some(price) = oracle_resp.price {
@@ -186,9 +191,43 @@ pub fn migrate(deps: DepsMut, _env: Env, _msg: MigrateMsg) -> Result<Response, C
     Ok(Response::default())
 }
 
+/// Query handler.
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(_deps: Deps, _env: Env, _msg: QueryMsg) -> StdResult<Binary> {
-    unimplemented!()
+pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<Binary> {
+    match msg {
+        QueryMsg::Config {} => cosmwasm_std::to_json_binary(&query_config(deps)?),
+        QueryMsg::History { pairs } => cosmwasm_std::to_json_binary(&query_history(deps, pairs)?),
+    }
+}
+
+/// Returns the contract configuration.
+fn query_config(deps: Deps) -> StdResult<Config> {
+    let config = CONFIG.load(deps.storage)?;
+    Ok(config)
+}
+
+/// For each given pair, load the ring buffer entries using the LAST_INDEX pointer,
+/// so that the records are returned in the order they were updated.
+/// NOTE: yes, we are reading HISTORY_SIZE times per requested CurrencyPair by choice,
+/// because it allows us to minimize gas consumption when updating the prices in the CRON's
+/// BeginBlocker.
+pub fn query_history(deps: Deps, pairs: Vec<CurrencyPair>) -> StdResult<Vec<(CurrencyPair, Vec<QuotePrice>)>> {
+    let config = CONFIG.load(deps.storage)?;
+    let mut histories = vec![];
+    for pair in pairs.into_iter() {
+        let key = pair_key(&pair);
+        let pointer = LAST_INDEX.load(deps.storage, &key)?;
+        let mut records: Vec<QuotePrice> = vec![];
+        // Iterate over the ring buffer starting from the oldest record (at pointer)
+        for i in 0..config.history_size {
+            let idx = (pointer + i) % config.history_size;
+            if let Some(rec) = PRICE_HISTORY.may_load(deps.storage, (key.as_str(), idx))? {
+                records.push(rec);
+            }
+        }
+        histories.push((pair, records));
+    }
+    Ok(histories)
 }
 
 /// ------------------------------------------------------------------------------------------------
@@ -212,7 +251,6 @@ pub fn validate_price(
     max_blocks_old: u64,
 ) -> bool {
     // Check that the price received more than zero updates from validators.
-    // TODO(zavgorodnii): maybe introduce a parameter for the desired nonce?
     if nonce == 0 {
         return false;
     }
@@ -227,5 +265,5 @@ pub fn validate_price(
 
 /// Returns a string key for a currency pair.
 pub(crate) fn pair_key(pair: &CurrencyPair) -> String {
-    format!("{}-{}", pair.base, pair.quote)
+    format!("{}/{}", pair.base, pair.quote)
 }

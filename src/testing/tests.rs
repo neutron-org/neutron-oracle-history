@@ -1,4 +1,4 @@
-use crate::contract::{execute, instantiate, pair_key};
+use crate::contract::{execute, instantiate, pair_key, query_history};
 use crate::msg::{ExecuteMsg, InstantiateMsg};
 use crate::state::{CONFIG, LAST_INDEX, PRICE_HISTORY};
 use crate::testing::mock_querier::{mock_dependencies, MockOraclePriceData};
@@ -228,9 +228,9 @@ fn test_update_prices_success_and_skip_logic() {
     env.block.height += 20;
 
     // Insert some mock oracle data:
-    // 1) untrn-usd -> valid data (nonce=2, price.block_height=env.block.height - 5)
-    // 2) uatom-usd -> stale data (nonce=3, but block_height=0 or something older than max_blocks_old)
-    let key1 = "untrn-usd";
+    // 1) untrn/usd -> valid data (nonce=2, price.block_height=env.block.height - 5)
+    // 2) uatom/usd -> stale data (nonce=3, but block_height=0 or something older than max_blocks_old)
+    let key1 = "untrn/usd";
     deps.querier.update_oracle_data(
         key1,
         MockOraclePriceData {
@@ -244,7 +244,7 @@ fn test_update_prices_success_and_skip_logic() {
             id: 42,
         },
     );
-    let key2 = "uatom-usd";
+    let key2 = "uatom/usd";
     deps.querier.update_oracle_data(
         key2,
         MockOraclePriceData {
@@ -265,8 +265,8 @@ fn test_update_prices_success_and_skip_logic() {
     let res = execute(deps.as_mut(), env.clone(), info, msg).unwrap();
 
     // We expect one pair to be updated, the other to be skipped
-    // The "skip" attribute is for the stale pair (uatom-usd)
-    // The "updated" attribute is for the fresh pair (untrn-usd)
+    // The "skip" attribute is for the stale pair (uatom/usd)
+    // The "updated" attribute is for the fresh pair (untrn/usd)
     assert_eq!(res.attributes.len(), 2);
     assert_eq!(res.attributes[0], attr("updated", key1));
     assert_eq!(res.attributes[1], attr("skip", key2));
@@ -312,7 +312,7 @@ fn test_update_prices_ring_buffer_wrap() {
     instantiate(deps.as_mut(), env.clone(), info, instantiate_msg).unwrap();
 
     // We'll do multiple update calls to force the ring buffer to wrap
-    let key = "untrn-usd";
+    let key = "untrn/usd";
 
     for i in 0..5 {
         env.block.height += 2; // enough blocks so we don't get "TooSoon"
@@ -359,4 +359,85 @@ fn test_update_prices_ring_buffer_wrap() {
     // So after the 5th update, index 0 = i=4, index 1 = i=3.
     assert_eq!(price0.price, "4");
     assert_eq!(price1.price, "3");
+}
+
+#[test]
+fn test_query_history() {
+    let mut deps = mock_dependencies();
+    let env = mock_env();
+
+    // Instantiate contract
+    let instantiate_msg = InstantiateMsg {
+        owner: deps.api.addr_make("owner_addr").into_string(),
+        caller: deps.api.addr_make("caller_addr").into_string(),
+        pairs: vec![
+            CurrencyPair {
+                base: "untrn".to_string(),
+                quote: "usd".to_string(),
+            },
+            CurrencyPair {
+                base: "uatom".to_string(),
+                quote: "usd".to_string(),
+            },
+        ],
+        update_period: 10,
+        max_blocks_old: 100,
+        history_size: 3,
+    };
+
+    let info = message_info(&deps.api.addr_make("creator"), &[]);
+    instantiate(deps.as_mut(), env.clone(), info, instantiate_msg.clone()).unwrap();
+
+    // Manually store some price data for testing (simulating 100 -> 200 -> 300 -> 400 -> 500
+    // additions).
+    let pair_untrn_usd = pair_key(&CurrencyPair { base: "untrn".into(), quote: "usd".into() });
+    PRICE_HISTORY.save(
+        &mut deps.storage,
+        (pair_untrn_usd.as_str(), 0),
+        &QuotePrice { price: "400".into(), block_timestamp: None, block_height: 40 },
+    ).unwrap();
+    PRICE_HISTORY.save(
+        &mut deps.storage,
+        (pair_untrn_usd.as_str(), 1),
+        &QuotePrice { price: "500".into(), block_timestamp: None, block_height: 50 },
+    ).unwrap();
+    PRICE_HISTORY.save(
+        &mut deps.storage,
+        (pair_untrn_usd.as_str(), 2),
+        &QuotePrice { price: "300".into(), block_timestamp: None, block_height: 30 },
+    ).unwrap();
+
+    let pair_uatom_usd = pair_key(&CurrencyPair { base: "uatom".into(), quote: "usd".into() });
+    PRICE_HISTORY.save(
+        &mut deps.storage,
+        (pair_uatom_usd.as_str(), 0),
+        &QuotePrice { price: "300".into(), block_timestamp: None, block_height: 30 },
+    ).unwrap();
+
+    // Set ring buffer pointers manually
+    LAST_INDEX.save(&mut deps.storage, &pair_untrn_usd, &2).unwrap();
+    LAST_INDEX.save(&mut deps.storage, &pair_uatom_usd, &1).unwrap();
+
+    // Query history
+    let pairs_to_query = vec![
+        CurrencyPair { base: "untrn".into(), quote: "usd".into() },
+        CurrencyPair { base: "uatom".into(), quote: "usd".into() },
+    ];
+
+    let history = query_history(deps.as_ref(), pairs_to_query.clone()).unwrap();
+
+    // Check results
+    assert_eq!(history.len(), 2);
+
+    // For untrn/usd
+    assert_eq!(history[0].0, pairs_to_query[0]);
+    assert_eq!(history[0].1.len(), 3);
+    assert_eq!(history[0].1[0].price, "300");
+    assert_eq!(history[0].1[1].price, "400");
+    assert_eq!(history[0].1[2].price, "500");
+
+    // For uatom/usd
+    assert_eq!(history[1].0, pairs_to_query[1]);
+    assert_eq!(history[1].1.len(), 1);
+    assert_eq!(history[1].1[0].price, "300");
 }
