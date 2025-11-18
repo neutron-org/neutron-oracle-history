@@ -764,14 +764,15 @@ dependencies = [
 
 [[package]]
 name = "neutron-std"
-version = "5.0.0"
-source = "git+https://github.com/neutron-org/neutron-std?branch=feat%2Frespect-gogoproto-nullable#a4ee7d08ccb5927ac870a89a37c6334a0ab5b440"
+version = "8.0.0"
+source = "git+https://github.com/neutron-org/neutron-std?branch=feat%2Fwithdraw_with_shares#c0b45427b730bf31fb05312a034d1287d9923b21"
 dependencies = [
  "bech32 0.9.1",
  "chrono",
  "cosmos-sdk-proto",
  "cosmwasm-schema",
  "cosmwasm-std",
+ "ed25519-zebra",
  "neutron-std-derive",
  "prost 0.12.6",
  "prost-types",
@@ -789,7 +790,7 @@ dependencies = [
 [[package]]
 name = "neutron-std-derive"
 version = "0.20.1"
-source = "git+https://github.com/neutron-org/neutron-std?branch=feat%2Frespect-gogoproto-nullable#a4ee7d08ccb5927ac870a89a37c6334a0ab5b440"
+source = "git+https://github.com/neutron-org/neutron-std?branch=feat%2Fwithdraw_with_shares#c0b45427b730bf31fb05312a034d1287d9923b21"
 dependencies = [
  "itertools 0.10.5",
  "proc-macro2",
